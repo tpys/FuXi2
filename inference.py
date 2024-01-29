@@ -12,6 +12,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--model_dir', type=str, required=True, help="FuXi onnx model dir")
 parser.add_argument('--input', type=str, required=True, help="The input data file, store in netcdf format")
 parser.add_argument('--device', type=str, default="cuda", help="The device to run FuXi model")
+parser.add_argument('--version', type=str, default="c79")
 parser.add_argument('--save_dir', type=str, default="")
 parser.add_argument('--total_step', type=int, default=40)
 args = parser.parse_args()
@@ -145,7 +146,7 @@ if __name__ == "__main__":
     if os.path.exists(args.input):
         input = xr.open_dataarray(args.input)
     else:
-        input = make_sample("sample/input")
+        input = make_sample("sample/input", version=args.version)
         input.to_netcdf("sample/input.nc")
         print_dataarray(input, "input")
 

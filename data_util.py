@@ -39,7 +39,7 @@ def is_pressure(short_name):
     return short_name in ["z", "t", "u", "v", "q"]
 
 
-def get_channel():
+def get_channel(pl_names):
     channel = []
     for (_, short_name) in pl_names:
         channel += [f'{short_name}{l}' for l in levels]
@@ -48,16 +48,20 @@ def get_channel():
     return channel
 
 
-def make_sample(data_dir):
+def make_sample(data_dir, version="c79"):
+
+    new_pl_names = pl_names
+    if version == "c92":
+        new_pl_names += [('specific_cloud_liquid_water_content', 'clwc')]
+
     ds = []
-    for (long_name, short_name) in pl_names + sfc_names:   
+    for (long_name, short_name) in new_pl_names + sfc_names:   
         file_name = os.path.join(data_dir, f"{long_name}.nc")
         v = xr.open_dataarray(file_name)
-
         if is_pressure(short_name) and v.level.values[0] != 50:
             v = v.reindex(level=v.level[::-1])
 
-        if short_name == "q":
+        if short_name in ["q", "clwc"]:
             print(f"Convert {short_name} to g/kg")
             v = v * 1000
         
@@ -72,7 +76,7 @@ def make_sample(data_dir):
         ds.append(zero)
 
     ds = xr.concat(ds, 'level').rename({"level": "channel"})
-    ds = ds.assign_coords(channel=get_channel())
+    ds = ds.assign_coords(channel=get_channel(new_pl_names))
     return ds
 
 
