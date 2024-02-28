@@ -10,11 +10,12 @@ from data_util import *
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--model_dir', type=str, required=True, help="FuXi onnx model dir")
-parser.add_argument('--input', type=str, required=True, help="The input data file, store in netcdf format")
+parser.add_argument('--input', type=str, default="", help="The input data file, store in netcdf format")
 parser.add_argument('--device', type=str, default="cuda", help="The device to run FuXi model")
+parser.add_argument('--device_id', type=int, default=0, help="Which gpu to use")
 parser.add_argument('--version', type=str, default="c79")
 parser.add_argument('--save_dir', type=str, default="")
-parser.add_argument('--total_step', type=int, default=40)
+parser.add_argument('--total_step', type=int, default=1)
 args = parser.parse_args()
 
 stages = ['short', 'medium']
@@ -83,7 +84,8 @@ def load_model(model_name, device):
     # Increase the number for faster inference and more memory consumption
 
     if device == "cuda":
-        providers = [('CUDAExecutionProvider', {'arena_extend_strategy':'kSameAsRequested'})]
+        providers = ['CUDAExecutionProvider']
+        provider_options = [{'device_id': args.device_id}]
     elif device == "cpu":
         providers=['CPUExecutionProvider']
         options.intra_op_num_threads = 24
@@ -93,7 +95,8 @@ def load_model(model_name, device):
     session = ort.InferenceSession(
         model_name,  
         sess_options=options, 
-        providers=providers
+        providers=providers,
+        provider_options=provider_options
     )
     return session
 
@@ -129,6 +132,11 @@ def run_inference(models, input, total_step, save_dir=""):
             hour = valid_time.hour/24 
             inputs['hour'] = np.array([hour], dtype=np.float32)
 
+        if "doy" in input_names:
+            doy = min(365, valid_time.day_of_year)/365
+            inputs['doy'] = np.array([doy], dtype=np.float32)
+        
+
         t0 = time.perf_counter()
         new_input, = model.run(None, inputs)
         output = deepcopy(new_input[:, -1:])
@@ -146,9 +154,10 @@ if __name__ == "__main__":
     if os.path.exists(args.input):
         input = xr.open_dataarray(args.input)
     else:
-        input = make_sample("sample/input", version=args.version)
-        input.to_netcdf("sample/input.nc")
-        print_dataarray(input, "input")
+        input = make_sample(f"{args.model_dir}/sample/input", version=args.version)
+        input.to_netcdf(f"{args.model_dir}/sample/input.nc")
+        
+    print_dataarray(input)
 
     models = {}
     for stage in stages:
