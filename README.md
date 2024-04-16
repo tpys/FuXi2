@@ -12,6 +12,8 @@ The downloaded files shall be organized as the following hierarchy:
 │   |    ├── short.onnx
 │   |    ├── medium
 │   |    ├── medium.onnx
+│   |    ├── interp
+│   |    ├── interp.onnx
 |   │    ├── sample
 |   │    │    ├── input
 |   │    │         ├── geopotential.nc
@@ -43,7 +45,7 @@ python inference.py \
     --model_dir model/onnx \
     --input model/sample/input.nc \
     --total_step 40 \
-    --save_dir output;
+    --output_dir output;
 ```
 
 

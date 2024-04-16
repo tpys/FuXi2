@@ -5,20 +5,24 @@ import numpy as np
 import xarray as xr
 import pandas as pd
 import onnxruntime as ort
-from copy import deepcopy
 from data_util import *
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--model_dir', type=str, required=True, help="FuXi onnx model dir")
+parser.add_argument('--output_dir', type=str, default="")
 parser.add_argument('--input', type=str, default="", help="The input data file, store in netcdf format")
 parser.add_argument('--device', type=str, default="cuda", help="The device to run FuXi model")
 parser.add_argument('--device_id', type=int, default=0, help="Which gpu to use")
 parser.add_argument('--version', type=str, default="c79")
-parser.add_argument('--save_dir', type=str, default="")
 parser.add_argument('--total_step', type=int, default=1)
+parser.add_argument('--use_interp', action="store_true")
 args = parser.parse_args()
 
-stages = ['short', 'medium']
+
+model_urls = {
+    "short": os.path.join(args.model_dir, f"short.onnx"),
+    "interp": os.path.join(args.model_dir, f"interp.onnx"),
+}
 
 
 def save_with_progress(ds, save_name, dtype=np.float32):
@@ -38,24 +42,27 @@ def save_with_progress(ds, save_name, dtype=np.float32):
         obj.compute()
 
 
-def save_like(output, input, lead_time, save_dir=""):
-    if save_dir:
-        os.makedirs(save_dir, exist_ok=True)
+def save_like(output, input, lead_time):
+    output_dir = args.output_dir
+
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
         init_time = pd.to_datetime(input.time.values[-1])
+        lead_times = np.arange(lead_time-output.shape[1], lead_time) + 1
 
         ds = xr.DataArray(
             data=output,
             dims=['time', 'lead_time', 'channel', 'lat', 'lon'],
             coords=dict(
                 time=[init_time],
-                lead_time=[lead_time],
+                lead_time=lead_times,
                 channel=input.channel,
                 lat=input.lat.values,
                 lon=input.lon.values,
             )
         ).astype(np.float32)
         print_dataarray(ds)
-        save_name = os.path.join(save_dir, f'{lead_time:03d}.nc')
+        save_name = os.path.join(output_dir, f'{lead_time:03d}.nc')
         save_with_progress(ds, save_name)
 
 
@@ -83,6 +90,12 @@ def load_model(model_name, device):
     options.enable_mem_reuse = False
     # Increase the number for faster inference and more memory consumption
 
+    # cuda_provider_options = {"arena_extend_strategy": "kSameAsRequested", "do_copy_in_default_stream": False, "cudnn_conv_use_max_workspace": "1"}
+    # cpu_provider_options = {"arena_extend_strategy": "kSameAsRequested", "do_copy_in_default_stream": False}
+    # execution_providers = [("CUDAExecutionProvider", cuda_provider_options), ("CPUExecutionProvider", cpu_provider_options)]
+    # session = ort.InferenceSession(model_name,  providers=execution_providers)
+    # return session
+
     if device == "cuda":
         providers = ['CUDAExecutionProvider']
         provider_options = [{'device_id': args.device_id}]
@@ -92,8 +105,7 @@ def load_model(model_name, device):
     else:
         raise ValueError("device must be cpu or cuda!")
 
-    session = ort.InferenceSession(
-        model_name,  
+    session = ort.InferenceSession(model_name, 
         sess_options=options, 
         providers=providers,
         provider_options=provider_options
@@ -101,7 +113,7 @@ def load_model(model_name, device):
     return session
 
 
-def run_inference(models, input, total_step, save_dir=""):
+def run_inference(models, input, total_step):
     hist_time = pd.to_datetime(input.time.values[-2])
     init_time = pd.to_datetime(input.time.values[-1])
     assert init_time - hist_time == pd.Timedelta(hours=6)
@@ -118,12 +130,11 @@ def run_inference(models, input, total_step, save_dir=""):
     for step in range(total_step):
         lead_time = (step + 1) * 6
         valid_time = init_time + pd.Timedelta(hours=step * 6)
+        model = models["short"]
 
-        stage = stages[min(len(models)-1, step // 20)]
-        model = models[stage]
-
-        input_names = [x.name for x in model.get_inputs()]
         inputs = {'input': batch}        
+        input_names = [x.name for x in model.get_inputs()]
+        print(f"input_names: {input_names}")
         
         if "step" in input_names:
             inputs['step'] = np.array([step], dtype=np.float32)
@@ -139,15 +150,21 @@ def run_inference(models, input, total_step, save_dir=""):
 
         t0 = time.perf_counter()
         new_input, = model.run(None, inputs)
-        output = deepcopy(new_input[:, -1:])
-        step_time = time.perf_counter() - t0
-        print(f"stage: {stage}, lead_time: {lead_time:03d} h, step_time: {step_time:.3f} sec")
+        output = new_input[:, -1:]
 
-        save_like(output, input, lead_time, save_dir)
+        if args.use_interp:
+            inputs['input'] = new_input
+            print(f"new_input: {new_input.shape}, {new_input.min():.3f} ~ {new_input.max():.3f}")
+            output, = models["interp"].run(None, inputs)
+            print(f"output: {output.shape}, {output.min()}, {output.max()}")
+
+        run_time = time.perf_counter() - t0
+        print(f"lead_time: {lead_time:03d} h, run_time: {run_time:.3f} secs")
+        save_like(output, input, lead_time)
         batch = new_input
 
-    run_time = time.perf_counter() - start
-    print(f'Inference done take {run_time:.2f}')
+    total_time = time.perf_counter() - start
+    print(f'Inference done take {total_time:.2f}')
 
 
 if __name__ == "__main__":
@@ -158,15 +175,14 @@ if __name__ == "__main__":
         input.to_netcdf(f"{args.model_dir}/sample/input.nc")
         
     print_dataarray(input)
-
+    
     models = {}
-    for stage in stages:
-        model_path = os.path.join(args.model_dir, f"{stage}.onnx")
-        if os.path.exists(model_path):
+    for k, file_name in model_urls.items():
+        if os.path.exists(file_name):
+            print(f'Load FuXi {k} ...')       
             start = time.perf_counter()
-            print(f'Load FuXi {stage} ...')       
-            model = load_model(model_path, args.device)            
-            models[stage] = model
-            print(f'Load FuXi {stage} take {time.perf_counter() - start:.2f} sec')
-            
-    run_inference(models, input, args.total_step, save_dir=args.save_dir)
+            model = load_model(file_name, args.device)            
+            models[k] = model
+            print(f'Load FuXi {k} take {time.perf_counter() - start:.2f} sec')
+
+    run_inference(models, input, args.total_step)
