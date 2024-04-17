@@ -9,7 +9,8 @@ from data_util import *
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--model_dir', type=str, required=True, help="FuXi onnx model dir")
-parser.add_argument('--output_dir', type=str, default="")
+parser.add_argument('--data_dir', type=str, required=True, help="Input data dir")
+parser.add_argument('--save_dir', type=str, default="", help="Where to save the results")
 parser.add_argument('--input', type=str, default="", help="The input data file, store in netcdf format")
 parser.add_argument('--device', type=str, default="cuda", help="The device to run FuXi model")
 parser.add_argument('--device_id', type=int, default=0, help="Which gpu to use")
@@ -43,10 +44,10 @@ def save_with_progress(ds, save_name, dtype=np.float32):
 
 
 def save_like(output, input, lead_time):
-    output_dir = args.output_dir
+    save_dir = args.save_dir
 
-    if output_dir:
-        os.makedirs(output_dir, exist_ok=True)
+    if save_dir:
+        os.makedirs(save_dir, exist_ok=True)
         init_time = pd.to_datetime(input.time.values[-1])
         lead_times = np.arange(lead_time-output.shape[1], lead_time) + 1
 
@@ -62,7 +63,7 @@ def save_like(output, input, lead_time):
             )
         ).astype(np.float32)
         print_dataarray(ds)
-        save_name = os.path.join(output_dir, f'{lead_time:03d}.nc')
+        save_name = os.path.join(save_dir, f'{lead_time:03d}.nc')
         save_with_progress(ds, save_name)
 
 
@@ -123,7 +124,7 @@ def run_inference(models, input, total_step):
     assert lat[0] == 90 and lat[-1] == -90
     batch = input.values[None]
     print(f'Inference initial time: {time_str} ...')
-    
+
     start = time.perf_counter()
     for step in range(total_step):
         lead_time = (step + 1) * 6
@@ -160,15 +161,21 @@ def run_inference(models, input, total_step):
     print(f'Inference done take {total_time:.2f}')
 
 
-if __name__ == "__main__":
-    if os.path.exists(args.input):
-        input = xr.open_dataarray(args.input)
+
+def load_input():
+    file_name = os.path.join(args.data_dir, "input.nc")
+    if os.path.exists(file_name):
+        input = xr.open_dataarray(file_name)
     else:
-        input = make_sample(f"{args.model_dir}/sample/input", version=args.version)
-        input.to_netcdf(f"{args.model_dir}/sample/input.nc")
-        
+        input = make_sample(f"{args.data_dir}/sample", version=args.version)
+        input.to_netcdf(file_name)
+
     print_dataarray(input)
-    
+    return input
+
+if __name__ == "__main__":
+    input = load_input()
+        
     models = {}
     for k, file_name in model_urls.items():
         if os.path.exists(file_name):
