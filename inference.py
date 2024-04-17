@@ -14,7 +14,7 @@ parser.add_argument('--save_dir', type=str, default="", help="Where to save the 
 parser.add_argument('--input', type=str, default="", help="The input data file, store in netcdf format")
 parser.add_argument('--device', type=str, default="cuda", help="The device to run FuXi model")
 parser.add_argument('--device_id', type=int, default=0, help="Which gpu to use")
-parser.add_argument('--version', type=str, default="c79")
+parser.add_argument('--version', type=str, default="c88")
 parser.add_argument('--total_step', type=int, default=1)
 parser.add_argument('--use_interp', action="store_true")
 args = parser.parse_args()
