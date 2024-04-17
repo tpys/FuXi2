@@ -12,12 +12,14 @@ The downloaded files shall be organized as the following hierarchy:
 │   |    ├── short.onnx
 │   |    ├── interp
 │   |    ├── interp.onnx
-|   │    ├── sample
-|   │    │    ├── input
-|   │    │         ├── geopotential.nc
-|   │    │         ├── temperature.nc
-|   │    │         ├── ...
-|   │    │         ├── total_precipitation.nc
+│   |   
+|   ├── data
+|   │    ├── input.nc
+|   │    ├── input
+|   │         ├── geopotential.nc
+|   │         ├── temperature.nc
+|   │         ├── ...
+|   │         ├── total_precipitation.nc
 |   |   
 │   ├── inference.py
 │   ├── data_util.py
@@ -41,9 +43,9 @@ conda install pytorch pytorch-cuda=11.7 -c pytorch -c nvidia
 ```python 
 python inference.py \
     --model_dir model/onnx \
-    --input model/sample/input.nc \
-    --total_step 20 \
-    --output_dir output;
+    --data_dir data/input \
+    --save_dir data/output \
+    --total_step 20;
 ```
 
 

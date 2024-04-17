@@ -163,13 +163,13 @@ def run_inference(models, input, total_step):
 
 
 def load_input():
-    file_name = os.path.join(args.data_dir, "input.nc")
+    assert os.path.exists(args.data_dir)
+    file_name = os.path.join(os.path.dirname(args.data_dir), "input.nc")
     if os.path.exists(file_name):
         input = xr.open_dataarray(file_name)
     else:
-        input = make_sample(f"{args.data_dir}/sample", version=args.version)
+        input = make_sample(args.data_dir, version=args.version)
         input.to_netcdf(file_name)
-
     print_dataarray(input)
     return input
 
