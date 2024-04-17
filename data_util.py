@@ -105,7 +105,7 @@ def make_sample(data_dir, version="c79"):
 
 def print_dataarray(
     ds, msg='', 
-    names=["z500", "t850", "q700", "t2m", "sst", "msl", "ssrd", "ttr", "tp"]
+    names=["z500", "t850", "q700", "t2m", "msl"]
 ):
     v = ds.isel(time=0)
     msg += f"shape: {v.shape}"

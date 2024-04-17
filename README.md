@@ -10,8 +10,6 @@ The downloaded files shall be organized as the following hierarchy:
 │   ├── model
 │   |    ├── short
 │   |    ├── short.onnx
-│   |    ├── medium
-│   |    ├── medium.onnx
 │   |    ├── interp
 │   |    ├── interp.onnx
 |   │    ├── sample
@@ -44,7 +42,7 @@ conda install pytorch pytorch-cuda=11.7 -c pytorch -c nvidia
 python inference.py \
     --model_dir model/onnx \
     --input model/sample/input.nc \
-    --total_step 40 \
+    --total_step 20 \
     --output_dir output;
 ```
 

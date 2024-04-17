@@ -114,28 +114,24 @@ def load_model(model_name, device):
 
 
 def run_inference(models, input, total_step):
+    lat = input.lat.values 
     hist_time = pd.to_datetime(input.time.values[-2])
     init_time = pd.to_datetime(input.time.values[-1])
-    assert init_time - hist_time == pd.Timedelta(hours=6)
+    time_str = init_time.strftime("%Y%m%d%H")
 
-    lat = input.lat.values 
-    lon = input.lon.values 
+    assert init_time - hist_time == pd.Timedelta(hours=6)
     assert lat[0] == 90 and lat[-1] == -90
     batch = input.values[None]
-    print(f'Model initial Time: {init_time.strftime(("%Y%m%d%H"))}')
-    print(f"Region: {lat[0]:.2f} ~ {lat[-1]:.2f}, {lon[0]:.2f} ~ {lon[-1]:.2f}")
-
-    print(f'Inference ...')
+    print(f'Inference initial time: {time_str} ...')
+    
     start = time.perf_counter()
     for step in range(total_step):
         lead_time = (step + 1) * 6
         valid_time = init_time + pd.Timedelta(hours=step * 6)
         model = models["short"]
-
-        inputs = {'input': batch}        
         input_names = [x.name for x in model.get_inputs()]
-        print(f"input_names: {input_names}")
-        
+        inputs = {'input': batch}        
+
         if "step" in input_names:
             inputs['step'] = np.array([step], dtype=np.float32)
 
@@ -147,16 +143,13 @@ def run_inference(models, input, total_step):
             doy = min(365, valid_time.day_of_year)/365
             inputs['doy'] = np.array([doy], dtype=np.float32)
         
-
         t0 = time.perf_counter()
         new_input, = model.run(None, inputs)
         output = new_input[:, -1:]
 
         if args.use_interp:
             inputs['input'] = new_input
-            print(f"new_input: {new_input.shape}, {new_input.min():.3f} ~ {new_input.max():.3f}")
             output, = models["interp"].run(None, inputs)
-            print(f"output: {output.shape}, {output.min()}, {output.max()}")
 
         run_time = time.perf_counter() - t0
         print(f"lead_time: {lead_time:03d} h, run_time: {run_time:.3f} secs")
