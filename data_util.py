@@ -4,7 +4,7 @@ import xarray as xr
 
 __all__ = ["make_sample", "print_dataarray"]
 
-levels = [50, 100, 150, 200, 250, 300, 400, 500, 600, 700, 850, 925, 1000]
+LEVELS = [50, 100, 150, 200, 250, 300, 400, 500, 600, 700, 850, 925, 1000]
 unit_scale = dict(q=1000)
 
 pl_names = dict(
@@ -54,12 +54,10 @@ input_names = dict(
     c88=['z','t','u','v','q','t2m','d2m','sst','u10m','v10m','u100m','v100m','msl', 'lcc', 'mcc', 'hcc', 'tcc', 'mdts', 'mdww', 'mpts', 'mpww', 'shts', 'shww', 'ssr','ssrd','fdir','ttr','tp'],
 )
 
-
 def level_to_channel(ds, short_name):
     if "channel" in ds.dims:
         ds.name = "data"
         return ds
-
     if "level" not in ds.dims:
         ds = ds.expand_dims({'level': [1]}, axis=1)        
     if len(ds.level) == 1:
@@ -72,6 +70,16 @@ def level_to_channel(ds, short_name):
     return ds
 
 
+def zero_like(short_name, ref):
+    v = xr.DataArray(
+        name=short_name, 
+        data=np.zeros((2, 1, len(ref.lat), len(ref.lon)), dtype=np.float32), 
+        dims=["time", "level", "lat", "lon"],
+        coords={"time":ref.time, "level": [0], "lat": ref.lat, "lon": ref.lon}
+    )    
+    return v
+
+
 def make_sample(data_dir, version="c79"):
     ds = []
     for short_name in input_names[version]:
@@ -79,30 +87,31 @@ def make_sample(data_dir, version="c79"):
             file_name = os.path.join(data_dir, f"{pl_names[short_name]}.nc")
         elif short_name in sfc_names:
             file_name = os.path.join(data_dir, f"{sfc_names[short_name]}.nc")
-        
         assert os.path.exists(file_name), f"{version} {short_name} not found"
-        
+
         if short_name in accum_names:
-            v = ds[-1] * 0
+            v = zero_like(short_name, ref=ds[-1])
         else:
-            v = xr.open_dataarray(file_name)            
+            v = xr.open_dataarray(file_name)  
 
         v = v * unit_scale.get(short_name, 1)
         v = level_to_channel(v, short_name)
         print(f"{short_name}: {v.shape}, {v.min():.3f} ~ {v.max():.3f}")
         ds.append(v)
-    
+
     ds = xr.concat(ds, 'channel')
     return ds
 
 
-def print_dataarray(
-    ds, msg='', 
-    names=["z500", "t850", "q700", "t2m", "msl"]
-):
-    v = ds.isel(time=0)
-    msg += f"shape: {v.shape}"
+def print_dataarray(ds, names=[]):
     
+    if "time" in ds.dims:
+        v = ds.isel(time=0)
+    else:
+        v = ds
+
+    msg = f"name: {v.name}, shape: {v.shape}"
+
     if 'lat' in ds.dims:
         lat = ds.lat.values
         msg += f", lat: {lat[0]:.3f} ~ {lat[-1]:.3f}"
@@ -110,17 +119,21 @@ def print_dataarray(
         lon = ds.lon.values
         msg += f", lon: {lon[0]:.3f} ~ {lon[-1]:.3f}"   
 
-    if "level" in v.dims and len(v.level) > 1:
-        for lvl in np.intersect1d(names, v.level.data):
-            x = v.sel(level=lvl).values
+    if "level" in v.dims:
+        if len(names) > 0:
+            v = v.sel(level=np.intersect1d(names, v.level))
+        for lvl in v.level.data:
+            x = v.sel(level=lvl)
             msg += f"\nlevel: {lvl:04d}, value: {x.min():.3f} ~ {x.max():.3f}"
 
-    if "channel" in v.dims and len(v.channel) > 1:
-        for ch in  np.intersect1d(names, v.channel.data):
-            x = v.sel(channel=ch).values
+    if "channel" in v.dims:
+        if len(names) > 0:
+            v = v.sel(channel=np.intersect1d(names, v.channel))        
+        for ch in v.channel.data:
+            x = v.sel(channel=ch)
             msg += f"\nchannel: {ch}, value: {x.min():.3f} ~ {x.max():.3f}"
 
-    print(msg)
+    print(msg + "\n")
 
 
 

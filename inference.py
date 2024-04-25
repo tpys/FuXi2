@@ -6,6 +6,7 @@ import xarray as xr
 import pandas as pd
 import onnxruntime as ort
 from data_util import *
+from functools import partial
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--model_dir', type=str, required=True, help="FuXi onnx model dir")
@@ -22,9 +23,15 @@ args = parser.parse_args()
 
 model_urls = {
     "short": os.path.join(args.model_dir, f"short.onnx"),
-    "interp": os.path.join(args.model_dir, f"interp.onnx"),
 }
 
+if args.use_interp:
+    model_urls["interp"] = os.path.join(args.model_dir, f"interp.onnx")
+
+print_common = partial(
+    print_dataarray, 
+    names=["z500", "t850", "q700", "t2m", "sst", "msl", "tcc", "ssrd", "tp"]
+)
 
 def save_with_progress(ds, save_name, dtype=np.float32):
     from dask.diagnostics import ProgressBar
@@ -62,7 +69,7 @@ def save_like(output, input, lead_time):
                 lon=input.lon.values,
             )
         ).astype(np.float32)
-        print_dataarray(ds)
+        print_common(ds)
         save_name = os.path.join(save_dir, f'{lead_time:03d}.nc')
         save_with_progress(ds, save_name)
 
@@ -122,40 +129,39 @@ def run_inference(models, input, total_step):
 
     assert init_time - hist_time == pd.Timedelta(hours=6)
     assert lat[0] == 90 and lat[-1] == -90
-    batch = input.values[None]
-    print(f'Inference initial time: {time_str} ...')
+    new_input = input.values[None]
+    print(f'Inference initial time: {time_str} ...\n')
 
     start = time.perf_counter()
     for step in range(total_step):
         lead_time = (step + 1) * 6
         valid_time = init_time + pd.Timedelta(hours=step * 6)
-        model = models["short"]
-        input_names = [x.name for x in model.get_inputs()]
-        inputs = {'input': batch}        
 
-        if "step" in input_names:
-            inputs['step'] = np.array([step], dtype=np.float32)
+        step = np.array([step], dtype=np.float32)
+        hour = np.array([valid_time.hour/24 ], dtype=np.float32)
+        doy = np.array([min(365, valid_time.day_of_year)/365], dtype=np.float32)
 
-        if "hour" in input_names:
-            hour = valid_time.hour/24 
-            inputs['hour'] = np.array([hour], dtype=np.float32)
-
-        if "doy" in input_names:
-            doy = min(365, valid_time.day_of_year)/365
-            inputs['doy'] = np.array([doy], dtype=np.float32)
-        
         t0 = time.perf_counter()
-        new_input, = model.run(None, inputs)
-        output = new_input[:, -1:]
+
+        if step < 20:
+            model = models["short"] 
+        else:
+            model = models.get("medium", "short")
+
+        input_names = [x.name for x in model.get_inputs()]
+        # print(f"{input_names=}")
+        new_input, = model.run(None, {'input': new_input, 'step': step, 'hour': hour, 'doy': doy})
+        # print(f"new_input: {new_input.shape}, {new_input.min():.3f} {new_input.max():.3f}")
 
         if args.use_interp:
-            inputs['input'] = new_input
-            output, = models["interp"].run(None, inputs)
+            output, = models["interp"].run(None, {'input': new_input, 'step': step, 'hour': hour, 'doy': doy})
+        else:
+            output = new_input[:, -1:]
 
+        # print(f"output: {output.shape}, {output.min():.3f} {output.max():.3f}")
         run_time = time.perf_counter() - t0
-        print(f"lead_time: {lead_time:03d} h, run_time: {run_time:.3f} secs")
         save_like(output, input, lead_time)
-        batch = new_input
+        print(f"lead_time: {lead_time:03d} h, run_time: {run_time:.3f} secs")
 
     total_time = time.perf_counter() - start
     print(f'Inference done take {total_time:.2f}')
@@ -175,7 +181,7 @@ def load_input():
 
 if __name__ == "__main__":
     input = load_input()
-        
+
     models = {}
     for k, file_name in model_urls.items():
         if os.path.exists(file_name):

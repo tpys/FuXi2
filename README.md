@@ -46,7 +46,8 @@ python inference.py \
     --data_dir data/input \
     --save_dir data/output \
     --version "c88" \
-    --total_step 20;
+    --total_step 20 \
+    --use_interp;
 ```
 
 
